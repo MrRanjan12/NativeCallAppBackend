@@ -9,7 +9,7 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: "*", // for dev only — restrict in production
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -22,58 +22,46 @@ io.on("connection", (socket) => {
   socket.on("join-room", (roomId) => {
     socket.join(roomId);
 
-    if (!rooms[roomId]) {
-      rooms[roomId] = [];
-    }
+    if (!rooms[roomId]) rooms[roomId] = [];
 
     if (!rooms[roomId].includes(socket.id)) {
       rooms[roomId].push(socket.id);
-      console.log(`User ${socket.id} joined room ${roomId}`);
     }
 
-    const others = rooms[roomId].filter(id => id !== socket.id);
+    console.log(`User ${socket.id} joined room ${roomId}`);
 
-    // 🔐 Notify new user only if exactly one other user is in room (1-on-1)
-    if (others.length === 1) {
-      io.to(socket.id).emit("user-joined");
+    const usersInRoom = rooms[roomId].filter(id => id !== socket.id);
+
+    if (usersInRoom.length === 1) {
+      // Notify existing user that a new peer has joined
+      io.to(usersInRoom[0]).emit("user-joined", { newUser: socket.id });
     }
 
-    // ✅ Handle disconnection
     socket.on("disconnect", () => {
       console.log(`🔴 Disconnected: ${socket.id}`);
-      socket.to(roomId).emit("user-left");
 
-      if (rooms[roomId]) {
-        rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
-        if (rooms[roomId].length === 0) {
-          delete rooms[roomId];
-        }
+      rooms[roomId] = (rooms[roomId] || []).filter(id => id !== socket.id);
+      if (rooms[roomId].length === 0) {
+        delete rooms[roomId];
+      } else {
+        socket.to(roomId).emit("user-left", { leaver: socket.id });
       }
     });
   });
 
-  // 📡 Send offer to other peer in room
   socket.on("offer", ({ roomId, sdp }) => {
-    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
-    if (otherUser) {
-      io.to(otherUser).emit("offer", { sdp });
-    }
+    const other = rooms[roomId]?.find(id => id !== socket.id);
+    if (other) io.to(other).emit("offer", { sdp });
   });
 
-  // ✅ Send answer back to offerer
   socket.on("answer", ({ roomId, sdp }) => {
-    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
-    if (otherUser) {
-      io.to(otherUser).emit("answer", { sdp });
-    }
+    const other = rooms[roomId]?.find(id => id !== socket.id);
+    if (other) io.to(other).emit("answer", { sdp });
   });
 
-  // ❄️ Forward ICE candidates
   socket.on("ice-candidate", ({ roomId, candidate }) => {
-    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
-    if (otherUser) {
-      io.to(otherUser).emit("ice-candidate", { candidate });
-    }
+    const other = rooms[roomId]?.find(id => id !== socket.id);
+    if (other) io.to(other).emit("ice-candidate", { candidate });
   });
 });
 
