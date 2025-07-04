@@ -9,17 +9,19 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: "*", // for dev only — restrict in production
     methods: ["GET", "POST"]
   }
 });
 
-const rooms = {}; // { roomId: [socket1, socket2] }
+const rooms = {}; // roomId => [socketId1, socketId2]
 
 io.on("connection", (socket) => {
   console.log("🟢 Connected:", socket.id);
 
   socket.on("join-room", (roomId) => {
+    socket.join(roomId);
+
     if (!rooms[roomId]) {
       rooms[roomId] = [];
     }
@@ -29,18 +31,16 @@ io.on("connection", (socket) => {
       console.log(`User ${socket.id} joined room ${roomId}`);
     }
 
-    socket.join(roomId);
+    const others = rooms[roomId].filter(id => id !== socket.id);
 
-    const room = rooms[roomId];
-    if (room.length === 2) {
-      // Notify ONLY the second user to send offer
-      const [user1, user2] = room;
-      io.to(user2).emit("user-joined"); // let second user send offer
+    // 🔐 Notify new user only if exactly one other user is in room (1-on-1)
+    if (others.length === 1) {
+      io.to(socket.id).emit("user-joined");
     }
 
+    // ✅ Handle disconnection
     socket.on("disconnect", () => {
       console.log(`🔴 Disconnected: ${socket.id}`);
-
       socket.to(roomId).emit("user-left");
 
       if (rooms[roomId]) {
@@ -52,24 +52,27 @@ io.on("connection", (socket) => {
     });
   });
 
+  // 📡 Send offer to other peer in room
   socket.on("offer", ({ roomId, sdp }) => {
-    const target = rooms[roomId]?.find(id => id !== socket.id);
-    if (target) {
-      io.to(target).emit("offer", { sdp });
+    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
+    if (otherUser) {
+      io.to(otherUser).emit("offer", { sdp });
     }
   });
 
+  // ✅ Send answer back to offerer
   socket.on("answer", ({ roomId, sdp }) => {
-    const target = rooms[roomId]?.find(id => id !== socket.id);
-    if (target) {
-      io.to(target).emit("answer", { sdp });
+    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
+    if (otherUser) {
+      io.to(otherUser).emit("answer", { sdp });
     }
   });
 
+  // ❄️ Forward ICE candidates
   socket.on("ice-candidate", ({ roomId, candidate }) => {
-    const target = rooms[roomId]?.find(id => id !== socket.id);
-    if (target) {
-      io.to(target).emit("ice-candidate", { candidate });
+    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
+    if (otherUser) {
+      io.to(otherUser).emit("ice-candidate", { candidate });
     }
   });
 });
