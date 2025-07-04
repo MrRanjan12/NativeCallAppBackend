@@ -21,18 +21,26 @@ io.on("connection", (socket) => {
 
   socket.on("join-room", (roomId) => {
     socket.join(roomId);
+
     if (!rooms[roomId]) {
       rooms[roomId] = [];
     }
 
-    rooms[roomId].push(socket.id);
-    console.log(`User ${socket.id} joined room ${roomId}`);
+    // Prevent duplicate socket ID in room
+    if (!rooms[roomId].includes(socket.id)) {
+      rooms[roomId].push(socket.id);
+      console.log(`User ${socket.id} joined room ${roomId}`);
+    }
 
-    // Notify others in the room
-    socket.to(roomId).emit("user-joined");
+    // Notify the other user only
+    const otherUser = rooms[roomId].find(id => id !== socket.id);
+    if (otherUser) {
+      socket.emit("user-joined");
+    }
 
     socket.on("disconnect", () => {
       console.log(`🔴 Disconnected: ${socket.id}`);
+
       socket.to(roomId).emit("user-left");
 
       if (rooms[roomId]) {
@@ -44,7 +52,6 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Modify these handlers to forward only to 1 other peer in the room
   socket.on("offer", ({ roomId, sdp }) => {
     const otherUser = rooms[roomId]?.find(id => id !== socket.id);
     if (otherUser) {
