@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
@@ -6,61 +5,69 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-
 app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allow all for dev; restrict in production
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
 
-const rooms = {};
+const rooms = {}; // roomId => [socketId1, socketId2]
 
 io.on("connection", (socket) => {
-  console.log("🟢 New user connected:", socket.id);
+  console.log("🟢 Connected:", socket.id);
 
   socket.on("join-room", (roomId) => {
-    console.log(`User ${socket.id} joined room: ${roomId}`);
-
     socket.join(roomId);
-    const room = rooms[roomId] || [];
-    rooms[roomId] = [...room, socket.id];
-
-    if (room.length > 0) {
-      // Notify existing user to send an offer
-      socket.to(roomId).emit("user-joined");
+    if (!rooms[roomId]) {
+      rooms[roomId] = [];
     }
 
-    // Cleanup when user disconnects
+    rooms[roomId].push(socket.id);
+    console.log(`User ${socket.id} joined room ${roomId}`);
+
+    // Notify others in the room
+    socket.to(roomId).emit("user-joined");
+
     socket.on("disconnect", () => {
-      console.log(`🔴 User ${socket.id} disconnected`);
+      console.log(`🔴 Disconnected: ${socket.id}`);
       socket.to(roomId).emit("user-left");
 
       if (rooms[roomId]) {
-        rooms[roomId] = rooms[roomId].filter((id) => id !== socket.id);
-        if (rooms[roomId].length === 0) delete rooms[roomId];
+        rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
+        if (rooms[roomId].length === 0) {
+          delete rooms[roomId];
+        }
       }
     });
   });
 
+  // Modify these handlers to forward only to 1 other peer in the room
   socket.on("offer", ({ roomId, sdp }) => {
-    console.log("📡 Offer sent");
-    socket.to(roomId).emit("offer", { sdp });
+    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
+    if (otherUser) {
+      io.to(otherUser).emit("offer", { sdp });
+    }
   });
 
   socket.on("answer", ({ roomId, sdp }) => {
-    console.log("✅ Answer sent");
-    socket.to(roomId).emit("answer", { sdp });
+    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
+    if (otherUser) {
+      io.to(otherUser).emit("answer", { sdp });
+    }
   });
 
   socket.on("ice-candidate", ({ roomId, candidate }) => {
-    socket.to(roomId).emit("ice-candidate", { candidate });
+    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
+    if (otherUser) {
+      io.to(otherUser).emit("ice-candidate", { candidate });
+    }
   });
 });
 
 const PORT = process.env.PORT || 8000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server listening on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
