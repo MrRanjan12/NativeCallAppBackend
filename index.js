@@ -14,28 +14,28 @@ const io = new Server(server, {
   }
 });
 
-const rooms = {}; // roomId => [socketId1, socketId2]
+const rooms = {}; // { roomId: [socket1, socket2] }
 
 io.on("connection", (socket) => {
   console.log("🟢 Connected:", socket.id);
 
   socket.on("join-room", (roomId) => {
-    socket.join(roomId);
-
     if (!rooms[roomId]) {
       rooms[roomId] = [];
     }
 
-    // Prevent duplicate socket ID in room
     if (!rooms[roomId].includes(socket.id)) {
       rooms[roomId].push(socket.id);
       console.log(`User ${socket.id} joined room ${roomId}`);
     }
 
-    // Notify the other user only
-    const otherUser = rooms[roomId].find(id => id !== socket.id);
-    if (otherUser) {
-      socket.emit("user-joined");
+    socket.join(roomId);
+
+    const room = rooms[roomId];
+    if (room.length === 2) {
+      // Notify ONLY the second user to send offer
+      const [user1, user2] = room;
+      io.to(user2).emit("user-joined"); // let second user send offer
     }
 
     socket.on("disconnect", () => {
@@ -53,23 +53,23 @@ io.on("connection", (socket) => {
   });
 
   socket.on("offer", ({ roomId, sdp }) => {
-    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
-    if (otherUser) {
-      io.to(otherUser).emit("offer", { sdp });
+    const target = rooms[roomId]?.find(id => id !== socket.id);
+    if (target) {
+      io.to(target).emit("offer", { sdp });
     }
   });
 
   socket.on("answer", ({ roomId, sdp }) => {
-    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
-    if (otherUser) {
-      io.to(otherUser).emit("answer", { sdp });
+    const target = rooms[roomId]?.find(id => id !== socket.id);
+    if (target) {
+      io.to(target).emit("answer", { sdp });
     }
   });
 
   socket.on("ice-candidate", ({ roomId, candidate }) => {
-    const otherUser = rooms[roomId]?.find(id => id !== socket.id);
-    if (otherUser) {
-      io.to(otherUser).emit("ice-candidate", { candidate });
+    const target = rooms[roomId]?.find(id => id !== socket.id);
+    if (target) {
+      io.to(target).emit("ice-candidate", { candidate });
     }
   });
 });
